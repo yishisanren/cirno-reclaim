@@ -851,6 +851,12 @@ start_watchdog() {
   return 0
 }
 
+# pid 文件内容仍是 $2 时才删除
+pidfile_drop_if() {
+  [ "$(cat "$1" 2>/dev/null)" = "$2" ] && rm -f "$1" 2>/dev/null
+  return 0
+}
+
 stop_pidfile() {
   # $1 = pid 文件, $2 = 名字, $3 = 可选命令行关键字
   _cr_f=$1
@@ -859,12 +865,12 @@ stop_pidfile() {
   [ -r "$_cr_f" ] || return 0
   _cr_p=$(cat "$_cr_f" 2>/dev/null)
   case "$_cr_p" in
-    ''|*[!0-9]*) rm -f "$_cr_f"; return 0 ;;
+    ''|*[!0-9]*) pidfile_drop_if "$_cr_f" "$_cr_p"; return 0 ;;
   esac
   # pid 可能被系统复用：命令行对不上就只删 pid 文件，绝不误杀
   if [ -n "$_cr_pat" ] && ! proc_cmdline_has "$_cr_p" "$_cr_pat"; then
     log "drop stale $_cr_name pidfile (pid=$_cr_p is not $_cr_pat)"
-    rm -f "$_cr_f" 2>/dev/null
+    pidfile_drop_if "$_cr_f" "$_cr_p"
     return 0
   fi
   if pid_alive "$_cr_p"; then
@@ -877,7 +883,9 @@ stop_pidfile() {
     pid_alive "$_cr_p" && kill -KILL "$_cr_p" 2>/dev/null
     log "stopped $_cr_name pid=$_cr_p"
   fi
-  rm -f "$_cr_f" 2>/dev/null
+  # 等旧进程退出的这几秒里，service / watchdog 可能已经拉起新进程并写了自己的 pid；
+  # 无条件删除会删掉新进程的 pid 文件，之后每 30 秒误判「守护不在」并反复拉起
+  pidfile_drop_if "$_cr_f" "$_cr_p"
   return 0
 }
 

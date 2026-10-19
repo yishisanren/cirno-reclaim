@@ -8,7 +8,7 @@ SKIPUNZIP=0
 
 ui_print " "
 ui_print "=============================================="
-ui_print "   Cirno Reclaim Hybrid v2.0.0-coloros.2"
+ui_print "   Cirno Reclaim Hybrid v2.0.0-coloros.3"
 ui_print "   作者: flyingr · ColorOS 17 适配: yishisanren"
 ui_print "=============================================="
 ui_print " "
