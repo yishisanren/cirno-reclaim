@@ -2,6 +2,18 @@
 
 本项目从 v2.0.0 开始整合 **cirno-reclaim**（由 Cirno 派生）与 **HybridRAM**。
 
+## v2.0.0-coloros.2 — WebUI 设置页修复
+
+### 修复
+
+- WebUI 设置页在保存过一次或切换过预设后，数字参数全部显示为空、开关全部显示为关；
+  此时再点「保存设置」，所有开关都会被写成 0（包括 `dry_run`、`only_frozen`、`protect_foreground`、
+  `deep_reclaim`、`keepalive`、`oom_protect`）。原因是 `ctl.sh` 保存时把所有值写成 `key='value'`，
+  而 `webroot/app.js` 的 `parseConfig` 只对 `include_packages` / `exclude_packages` 去引号。
+  现在所有值都先去掉成对的单 / 双引号再显示。真机（ColorOS 17、KowSU 管理器）上发现并验证。
+- 已经用 coloros.1 的 WebUI 保存过设置的用户，升级后请到设置页逐项确认开关，尤其是「演练模式」、
+  「压缩冻结应用」、「只回收已冻结进程」、「保护前台应用」和「保活看门狗」。
+
 ## v2.0.0-coloros.1 — ColorOS 17 适配
 
 适配：yishisanren（基于 flyingr 的 v2.0.0）

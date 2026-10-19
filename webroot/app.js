@@ -395,7 +395,8 @@
       var k = l.slice(0, i).trim();
       var v = l.slice(i + 1).trim();
       v = v.replace(/\s+#.*$/, '');
-      if (QUOTED[k]) v = v.replace(/^'(.*)'$/, '$1');
+      // ctl.sh save / preset 把所有值都写成 key='value'，不只是名单类
+      v = v.replace(/^'(.*)'$/, '$1').replace(/^"(.*)"$/, '$1');
       out[k] = v;
     });
     return out;
