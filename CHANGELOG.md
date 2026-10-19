@@ -2,6 +2,18 @@
 
 本项目从 v2.0.0 开始整合 **cirno-reclaim**（由 Cirno 派生）与 **HybridRAM**。
 
+## v2.0.0-coloros.3 — 守护进程 pid 文件修复
+
+### 修复
+
+- watchdog 重启守护进程时，`stop_pidfile` 在等旧进程退出后无条件删除 pid 文件。
+  这几秒里 service 可能已经拉起新守护进程并写了自己的 pid，结果新进程的 pid 文件被删：
+  新守护进程持锁正常工作，但 `ctl.sh status` 和 WebUI 显示「已停止」，
+  service 和 watchdog 每 30 秒判定一次「守护不在」，拉起的进程又因锁被占立即退出，一直循环。
+  现在 `stop_pidfile` 只在 pid 文件内容仍是被停进程时才删除。
+- 守护进程每轮心跳时检查 pid 文件，丢失或被改写、且自己仍持有单实例锁时写回自己的 pid，
+  日志记 `daemon pidfile restored`。
+
 ## v2.0.0-coloros.2 — WebUI 设置页修复
 
 ### 修复

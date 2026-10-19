@@ -14,7 +14,7 @@
 
 ---
 
-> **状态**：v2.0.0-coloros.2。脚本在 Linux 上模拟 Android 两种 shell 环境（mksh + toybox、busybox）
+> **状态**：v2.0.0-coloros.3。脚本在 Linux 上模拟 Android 两种 shell 环境（mksh + toybox、busybox）
 > 跑过完整的自动化测试（`tests/sim.sh`，真实进程 + 真实 zram）。已在 OPPO Find X9s Pro（ColorOS 17、KernelSU）
 > 上验证安装、开机启动、守护 / 看门狗、演练日志与 WebUI；**真机上的压缩 / 结束动作尚未触发验证**。
 > 首次安装默认是**演练模式**：只在日志里记录本来会做什么，不压缩、不结束任何进程。
@@ -79,7 +79,7 @@
 
 ### 步骤
 
-1. 下载 `dist/Cirno-Reclaim-Hybrid-v2.0.0-coloros.2.zip`，在管理器里刷入，重启；
+1. 下载 `dist/Cirno-Reclaim-Hybrid-v2.0.0-coloros.3.zip`，在管理器里刷入，重启；
 2. 打开模块 WebUI，概览页会提示「演练模式」；
 3. 正常用一两天，看「运行日志」里的 `DRY would pageout` / `DRY would reclaim`：
    这是它本来会压缩 / 结束的应用；
