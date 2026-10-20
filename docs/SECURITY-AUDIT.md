@@ -9,6 +9,44 @@
 
 ---
 
+## v2.2.2-coloros.1（合入上游 v2.2.2）
+
+> 审计环境：macOS 开发机 + OPPO Find X9s Pro（ColorOS 17、KernelSU）。
+> 脚本用 dash / sh 静态解析，并在真机的 `/system/bin/sh`（mksh）和 KernelSU busybox 下运行；
+> C++ 守护用 zig 0.13.0 编译后在真机运行。
+
+| 编号 | 发现 | 处理 |
+|---|---|---|
+| U-1 | 上游 main 的合并结果不可用：`webroot/app.js` 语法错误、`module.prop` 两套键、`src/build.sh` 引用未定义的 `$OUT` | 改从 v2.2.2 标签三方合并，上游 main 记为已合并、不取其内容 |
+| U-2 | 预编译 `bin/cirno_daemon` 由 clang 23.1.2 生成，与 `build.sh` 声明的 zig 0.13 不符，无法由源码复现 | 用 zig 0.13.0 重新编译，两次编译逐字节一致；同一工具链可复现 `cirno_pageout` |
+| U-3 | `stop_pidfile` 无条件删除 pid 文件，C++ 守护也只在启动时写一次 pid | 只删仍指向被停进程的 pid 文件；两种守护都在心跳时自愈 |
+| U-4 | 切换 `daemon_engine` 后重启：旧引擎停不掉，锁被当成陈旧锁抢走，两个守护同时运行 | 停止、健康检查、抢锁同时认两种引擎 |
+| U-5 | WebUI 只对名单类键去引号，保存后再保存会把所有开关写成 0 | 所有值去引号；去注释后 `trim` |
+| U-6 | `uninstall.sh` 第 47 行 case 模式漏续行符，卸载清理不执行 | 补上续行符，dash / mksh / busybox 均通过 |
+| U-7 | 新写的多候选命令行匹配在 mksh 下把 `${v%%|*}` 的 `|` 当成「或」，任何命令行都算命中，pid 复用时会停掉无关进程（真机 mksh 测出，dash / busybox 正常） | 改为 `\|`；`tools/lint_sh.py` 增加对应规则 |
+| U-8 | `cirno_daemon` 是静态 musl 程序，读不到 Android 时区，日志按 UTC 写，与脚本日志差 8 小时 | 拉起时按 `date +%z` 传入 POSIX `TZ` |
+| U-9 | 新 WebUI 用同步 `ksu.exec`，KowSU 上只返回最后一行：设置页全空、开关全关，此时保存会写错配置 | 改用异步 `ksu.exec(cmd, '{}', callback)`，同步版只作回退 |
+
+## v2.2.2
+
+### 本版改动与安全影响
+
+| 改动 | 安全影响 | 处理 |
+|---|---|---|
+| 新增 C++ 守护 `cirno_daemon` | 只读配置、只 `fork/exec` 固定路径脚本，不 eval、不拼命令 | 只解析自己需要的数字键；脚本路径硬编码；子进程超时 SIGKILL；`mkdir` 锁 + pid 命令行校验 |
+| WebUI 四页 + 外观设置 | 新增 `ui set` 往设备写 `theme.conf` | 键白名单 + 枚举/范围校验 + 原子替换；本地图片只存 WebView |
+| `ctl.sh config` 自愈 | 配置缺失时从模块默认值恢复 | 只复制 `$MODDIR/config.conf`，不执行其中内容 |
+| `ctl.sh log` 读日志 | 新增日志读取路径 | 只读固定 `$LOG_DIR/reclaim.log`，不接收任意路径 |
+| 模块包瘦身 | 减少包体积与攻击面 | 只保留运行期文件 + `LICENSE` + 原生源码 |
+| `cfg_load` 末尾换行 | 修复无换行时 EOF 反复处理同一行的死循环风险 | 解析前先补齐换行 |
+
+### 已知未修
+
+- C++ 守护未在真机运行；`--status`、超时、回退逻辑只做了编译与静态检查；
+- `app_relief` 仍未对目标 PID 做 `starttime` 复核（只 trim，不杀进程）；
+- helper 内部 TOCTOU（先读 smaps 后 `pidfd_open`）仍在；
+- 未在 AOSP / HyperOS 真机验证 `dumpsys` 与 `cgroup` 路径。
+
 ## v2.0.0-coloros.1（ColorOS 17 适配）
 
 > 审计环境：Linux 虚拟机，有 mksh / busybox / dash / toybox / BWK awk / zram，

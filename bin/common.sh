@@ -2,8 +2,13 @@
 # ============================================================================
 #  Cirno Reclaim Hybrid - bin/common.sh
 #  所有脚本共享的基础设施：日志、内存读数、PSS、冻结检测、进程管理。
-#  严格 POSIX sh（Android 上是 mksh），不要写 bash 专有语法。
+# 严格 POSIX sh（Android 上是 mksh），不要写 bash 专有语法。
 # ============================================================================
+
+# 某些管理器（尤其 WebUI 的 ksu.exec）给的 PATH 可能不完整，
+# 先补齐再调用任何外部命令，否则 dirname/awk/tail 会“命令不存在”。
+PATH=/system/bin:/system/xbin:/sbin:/vendor/bin:/product/bin:/odm/bin:$PATH
+export PATH
 
 # 模块目录：common.sh 可能被根目录脚本（service.sh / post-fs-data.sh）
 # 或 bin/ 下的脚本 source，所以按「调用者的目录」判断层级。
@@ -346,27 +351,32 @@ protected_dynamic_refresh() {
   esac
   printf '%s' "${_cr_out# }" >"$STATE_DIR/protect.dynamic" 2>/dev/null
   chmod 600 "$STATE_DIR/protect.dynamic" 2>/dev/null
+  date +%s >"$STATE_DIR/protect.ts" 2>/dev/null
   return 0
 }
 
 in_list() {
   # $1 = 包名, $2 = 分号分隔名单
-  # 逐段切分，不做无引号展开（避免 `*` 被当前目录的文件名撑开）
+  # 用 IFS 切分 + set -f 关闭通配展开。
+  # 不用 ${var%%;*}：mksh 对这类写法里的分号处理有坑。
   [ -n "$2" ] || return 1
-  _cr_rest=$2
-  while [ -n "$_cr_rest" ]; do
-    _cr_pat=${_cr_rest%%;*}
-    case "$_cr_rest" in
-      *';'*) _cr_rest=${_cr_rest#*;} ;;
-      *) _cr_rest="" ;;
-    esac
+  _cr_old_ifs=$IFS
+  IFS=';'
+  set -f
+  for _cr_pat in $2; do
     [ -n "$_cr_pat" ] || continue
     # 名单支持 * 通配，这里故意不加引号
     # shellcheck disable=SC2254
     case "$1" in
-      $_cr_pat) return 0 ;;
+      $_cr_pat)
+        set +f
+        IFS=$_cr_old_ifs
+        return 0
+        ;;
     esac
   done
+  set +f
+  IFS=$_cr_old_ifs
   return 1
 }
 
@@ -467,6 +477,7 @@ cfg_defaults() {
   : "${watchdog_interval:=30}"
   : "${heartbeat_timeout:=180}"
   : "${oom_protect:=1}"
+  : "${daemon_engine:=cpp}"
   return 0
 }
 
@@ -479,8 +490,15 @@ cfg_defaults() {
 # 避免每行都 fork 一个子 shell）
 cfg_trim_var() {
   _cr_t=$1
-  _cr_t=${_cr_t#"${_cr_t%%[![:space:]]*}"}
-  _cr_t=${_cr_t%"${_cr_t##*[![:space:]]}"}
+  # 只处理空格（配置文件不用 tab），避免依赖 [[:space:]] 这类在 mksh 上
+  # 可能引发解析问题的写法。
+  while :; do
+    case "$_cr_t" in
+      ' '*) _cr_t=${_cr_t# } ;;
+      *' ') _cr_t=${_cr_t% } ;;
+      *) break ;;
+    esac
+  done
   CFG_TRIMMED=$_cr_t
 }
 
@@ -488,9 +506,10 @@ cfg_value_type_ok() {
   # $1 = 键，$2 = 已 trim、已去成对引号的值
   case "$1" in
     include_packages|exclude_packages)
-      case "$2" in
-        *[!A-Za-z0-9_.:\;*/+=,\ -]*) return 1 ;;
-      esac
+      # 用 grep 校验字符集：把 `;` 放进 case 的方括号模式会让 mksh 直接语法错误
+      if printf '%s' "$2" | grep -q '[^A-Za-z0-9_.:;*/+=, -]'; then
+        return 1
+      fi
       return 0
       ;;
     kill_mode)
@@ -507,6 +526,9 @@ cfg_value_type_ok() {
       ;;
     zram_algorithm)
       case "$2" in lz4|lz4hc|zstd|lzo-rle|lzo|'') return 0 ;; esac
+      ;;
+    daemon_engine)
+      case "$2" in cpp|shell) return 0 ;; esac
       ;;
     *)
       case "$2" in ''|*[!0-9]*) return 1 ;; esac
@@ -577,6 +599,7 @@ cfg_assign() {
     watchdog_interval) watchdog_interval=$2 ;;
     heartbeat_timeout) heartbeat_timeout=$2 ;;
     oom_protect) oom_protect=$2 ;;
+    daemon_engine) daemon_engine=$2 ;;
     include_packages) include_packages=$2 ;;
     exclude_packages) exclude_packages=$2 ;;
   esac
@@ -584,12 +607,102 @@ cfg_assign() {
 }
 
 # 读取配置：解析失败的行计数后忽略，不执行任何内容
+# 最后兜底：模块自带的 config.conf 也不见了时，直接生成一份完整默认配置。
+# 这样即使安装不完整，WebUI 也能读到配置、用户也能保存。
+write_default_config() {
+  cat >"$CONF_FILE" <<'CR_EOF'
+enable=1
+dry_run=0
+interval=15
+boot_delay=90
+log_max_kb=512
+profile=balanced
+mem_low_mb=800
+mem_low_pct=8
+mem_target_mb=1200
+mem_target_pct=14
+psi_enable=1
+psi_some_avg10=25
+high_pss_mb=600
+high_pss_interval=90
+max_kills_per_run=4
+max_kills_per_hour=20
+max_rounds=4
+cooldown_sec=60
+min_process_mb=48
+min_frozen_min=5
+min_oom_score_adj=900
+only_frozen=1
+kill_mode=pid
+protect_foreground=1
+screen_off_only=0
+drop_caches=0
+drop_caches_cooldown=1800
+deep_reclaim=1
+deep_pageout_max_mb=96
+allow_system_uid=0
+app_reclaim=1
+app_pss_mb=900
+app_reclaim_interval=45
+app_reclaim_cooldown=90
+app_trim_level=RUNNING_LOW
+app_trim_all_pids=1
+app_pageout=1
+app_pageout_max_mb=192
+app_pageout_passes=3
+app_proc_reclaim=0
+vm_tune=1
+zram_enable=1
+zram_disksize_mb=0
+zram_algorithm=lz4
+swapfile_enable=0
+swapfile_mb=2048
+swappiness=80
+vfs_cache_pressure=100
+dirty_writeback_centisecs=1500
+dirty_expire_centisecs=500
+page_cluster=1
+io_tune=0
+read_ahead_kb=128
+keepalive=1
+watchdog_interval=30
+heartbeat_timeout=180
+oom_protect=1
+daemon_engine=cpp
+include_packages=''
+exclude_packages='com.tencent.mm;com.tencent.mobileqq;com.eg.android.AlipayGphone;com.taobao.taobao;com.jingdong.app.mall;com.ss.android.ugc.aweme'
+CR_EOF
+  chmod 600 "$CONF_FILE" 2>/dev/null
+  log "config: generated built-in defaults"
+  return 0
+}
+
+# 配置缺失或为空时恢复：优先复制模块自带的 config.conf，再退回内置默认值
+ensure_config() {
+  [ -s "$CONF_FILE" ] && return 0
+  mkdir -p "$DATA_DIR" 2>/dev/null
+  if [ -r "$MODDIR/config.conf" ] && cp -f "$MODDIR/config.conf" "$CONF_FILE" 2>/dev/null; then
+    chmod 600 "$CONF_FILE" 2>/dev/null
+    log "config: restored from module default"
+    return 0
+  fi
+  write_default_config
+}
+
 cfg_load() {
   cfg_defaults
+  ensure_config
   [ -r "$CONF_FILE" ] || return 0
 
+  # 保证最后一行以换行结尾：否则 read 在 EOF 拿不到最后一行；
+  # 而用 `|| [ -n "$line" ]` 补又可能在无换行时死循环。
+  if [ -s "$CONF_FILE" ]; then
+    _cr_last=$(tail -c 1 "$CONF_FILE" 2>/dev/null)
+    [ -n "$_cr_last" ] && printf '\n' >>"$CONF_FILE" 2>/dev/null
+  fi
+
   _cr_bad=0
-  while IFS= read -r _cr_line || [ -n "$_cr_line" ]; do
+  while IFS= read -r _cr_line; do
     # 允许缩进的注释行
     cfg_trim_var "$_cr_line"
     _cr_line=$CFG_TRIMMED
@@ -608,7 +721,7 @@ cfg_load() {
 
     # 行内注释只认「空白 + #」；# 出现在别处说明这一行不可信，直接丢弃
     case "$_cr_v" in
-      *[[:space:]]'#'*) _cr_v=${_cr_v%%[[:space:]]#*} ;;
+      *' #'*) _cr_v=${_cr_v%%' #'*} ;;
       *'#'*) _cr_bad=$((_cr_bad + 1)); continue ;;
     esac
     cfg_trim_var "$_cr_v"
@@ -689,7 +802,7 @@ cfg_key_allowed() {
     vm_tune|zram_enable|zram_disksize_mb|zram_algorithm|swapfile_enable|swapfile_mb|\
     swappiness|vfs_cache_pressure|dirty_writeback_centisecs|dirty_expire_centisecs|\
     page_cluster|io_tune|read_ahead_kb|\
-    keepalive|watchdog_interval|heartbeat_timeout|oom_protect|\
+    keepalive|watchdog_interval|heartbeat_timeout|oom_protect|daemon_engine|\
     include_packages|exclude_packages)
       return 0 ;;
   esac
@@ -805,9 +918,22 @@ pageout_pid() {
 
 # ---------------------------------------------------------------- 进程管理
 # 判断某个 pid 的命令行是否包含关键字（防止 pid 复用导致误判存活）
+# $2 可以用 | 分隔多个候选，任一命中即可（按固定字符串比较）
 proc_cmdline_has() {
   [ -n "$1" ] && [ -r "/proc/$1/cmdline" ] || return 1
-  tr '\0' ' ' <"/proc/$1/cmdline" 2>/dev/null | grep -qF -- "$2"
+  _cr_cl=$(tr '\0' ' ' <"/proc/$1/cmdline" 2>/dev/null)
+  _cr_alts=$2
+  # 注意：参数展开里的 | 必须转义。mksh 把 ${v%%|*} 当成「空 或 *」，
+  # 取出空串，case 就会匹配任何命令行（busybox / dash 没这个问题）
+  while :; do
+    case "$_cr_cl" in
+      *"${_cr_alts%%\|*}"*) return 0 ;;
+    esac
+    case "$_cr_alts" in
+      *'|'*) _cr_alts=${_cr_alts#*\|} ;;
+      *) return 1 ;;
+    esac
+  done
 }
 
 # $2 = 可选命令行关键字；给了就必须匹配，避免 pid 复用导致误判存活
@@ -826,10 +952,41 @@ is_running_pidfile() {
   return 0
 }
 
+# C++ 守护可用吗（二进制存在且没被配置强制退回 shell）
+cpp_daemon_ready() {
+  [ "${daemon_engine:-cpp}" = "cpp" ] || return 1
+  [ -x "$CR_BIN/cirno_daemon" ]
+}
+
+# 当前引擎对应的命令行关键字（用于 pid 存活校验）
+# 判断「守护进程」时两种引擎都认：切换 daemon_engine 后、重启之前，旧引擎还在跑，
+# 只认新引擎会停不掉旧进程、还会把它持有的锁当成陈旧锁抢走，变成两个守护同时运行。
+# 具体拉起哪一种由 start_daemon 按 cpp_daemon_ready 决定。
+daemon_cmdline_pat() {
+  printf '%s' "/bin/cirno_daemon|/bin/daemon.sh"
+}
+
+# 静态 musl 编的 cirno_daemon 读不到 Android 的时区数据，localtime 会退回 UTC，
+# 日志时间和脚本差几个小时。按当前偏移给它一个 POSIX TZ（+0800 → UTC-08:00，符号与 ISO 相反）；
+# 夏令时切换要等守护重启才跟上
+posix_tz() {
+  date +%z 2>/dev/null | sed -n \
+    -e 's/^+\([0-9][0-9]\)\([0-9][0-9]\)$/UTC-\1:\2/p' \
+    -e 's/^-\([0-9][0-9]\)\([0-9][0-9]\)$/UTC+\1:\2/p'
+}
+
 start_daemon() {
-  is_running_pidfile "$PID_FILE" daemon.sh && return 0
+  _pat=$(daemon_cmdline_pat)
+  is_running_pidfile "$PID_FILE" "$_pat" && return 0
   rm -f "$PID_FILE" 2>/dev/null
-  if command -v setsid >/dev/null 2>&1; then
+  if cpp_daemon_ready; then
+    _tz=${TZ:-$(posix_tz)}
+    if command -v setsid >/dev/null 2>&1; then
+      TZ=$_tz setsid "$CR_BIN/cirno_daemon" >/dev/null 2>&1 &
+    else
+      ( TZ=$_tz "$CR_BIN/cirno_daemon" >/dev/null 2>&1 & )
+    fi
+  elif command -v setsid >/dev/null 2>&1; then
     setsid sh "$CR_BIN/daemon.sh" >/dev/null 2>&1 &
   else
     ( sh "$CR_BIN/daemon.sh" >/dev/null 2>&1 & )
@@ -891,7 +1048,7 @@ stop_pidfile() {
 
 stop_all() {
   stop_pidfile "$WD_PID_FILE" watchdog watchdog.sh
-  stop_pidfile "$PID_FILE" daemon daemon.sh
+  stop_pidfile "$PID_FILE" daemon "$(daemon_cmdline_pat)"
   return 0
 }
 
