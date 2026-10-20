@@ -923,12 +923,14 @@ proc_cmdline_has() {
   [ -n "$1" ] && [ -r "/proc/$1/cmdline" ] || return 1
   _cr_cl=$(tr '\0' ' ' <"/proc/$1/cmdline" 2>/dev/null)
   _cr_alts=$2
+  # 注意：参数展开里的 | 必须转义。mksh 把 ${v%%|*} 当成「空 或 *」，
+  # 取出空串，case 就会匹配任何命令行（busybox / dash 没这个问题）
   while :; do
     case "$_cr_cl" in
-      *"${_cr_alts%%|*}"*) return 0 ;;
+      *"${_cr_alts%%\|*}"*) return 0 ;;
     esac
     case "$_cr_alts" in
-      *'|'*) _cr_alts=${_cr_alts#*|} ;;
+      *'|'*) _cr_alts=${_cr_alts#*\|} ;;
       *) return 1 ;;
     esac
   done
