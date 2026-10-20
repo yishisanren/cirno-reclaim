@@ -2,6 +2,37 @@
 
 本项目由 **cirno-reclaim**（由 Cirno 派生）与 **HybridRAM** 整合而来，作者 flyingr。
 
+## v2.2.2-coloros.1 — 跟进上游 v2.2.2
+
+基于上游 v2.2.2（C++ 守护、新 WebUI、`ctl.sh doctor / info / log`）与 v2.0.0-coloros.3。
+
+### 修复
+
+- **C++ 守护的 pid 文件自愈**：看门狗重启守护时，`stop_pidfile` 可能删掉新进程刚写的 pid 文件，
+  之后 service 和 watchdog 每 30 秒误判一次「守护不在」。`cirno_daemon` 现在每次心跳检查 pid 文件，
+  丢失或被改写、且自己仍持有 `lock.daemon` 时写回，日志记 `cpp-daemon: pidfile restored`。
+  shell 守护沿用 coloros.3 的同一规则。
+- **切换守护引擎后出现两个守护**：改 `daemon_engine` 再「重启守护」时，停止只认新引擎的命令行，
+  旧引擎停不掉；新引擎又把旧引擎持有的锁当成陈旧锁抢走。现在停止、健康检查和抢锁都同时认两种引擎。
+- **C++ 引擎下保护名单不更新**：桌面 / 输入法保护名单只由 shell 守护每 30 分钟刷新。
+  现在 `reclaim.sh` 在名单缺失或超过 30 分钟时自己重取。
+- **WebUI 配置和日志只读到最后一行**：上游 v2.2.2 用同步的 `ksu.exec(cmd)`，KernelSU 系管理器只返回最后一行输出，
+  「场景」页的数字全空、开关全关，日志也只有一行。恢复 coloros.1 的异步调用，没有异步接口的管理器再退回同步版。
+- **WebUI 参数为空**：沿用 coloros.2 的修复，新 WebUI 读配置时所有值都先去掉引号；
+  去掉行内注释后再 `trim`，默认配置里带注释的空名单也能正确显示。
+- **`uninstall.sh` 无法运行**：上游 v2.2.2 新增 `cirno_daemon` 匹配时漏了续行符，`sh -n` 在第 47 行报错。
+- **C++ 守护的日志时间差 8 小时**：静态 musl 程序读不到 Android 的时区数据，按 UTC 写日志。
+  现在拉起时按当前时区偏移传入 POSIX `TZ`（如 `UTC-08:00`）。
+- `ctl.sh diag` 显示当前守护引擎。
+
+### 适配
+
+- 新 WebUI 加回 ColorOS 版内容：「先压缩、不够再结束」的说明、回收顺序选项、累计压缩量、
+  VM 调参 / zram 的 ColorOS 提示、演练模式和「找不到冻结进程」提示；反馈改到本仓库的 GitHub Issue。
+- `bin/cirno_daemon` 由源码重新编译（zig 0.13.0，两次编译逐字节一致）；
+  `src/build.sh` 支持 `ZIG="python3 -m ziglang"`，C helper 和 C++ 守护用同一套 zig。
+- 字符集校验改用上游的 `grep` 写法（同一处 mksh 解析问题，两边修法不同）。
+
 ## v2.2.2 — 开关点不动 / 保存语义
 
 ### 修复

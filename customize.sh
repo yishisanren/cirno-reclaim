@@ -8,7 +8,7 @@ SKIPUNZIP=0
 
 ui_print " "
 ui_print "=============================================="
-ui_print "   Cirno Reclaim Hybrid v2.0.0-coloros.3"
+ui_print "   Cirno Reclaim Hybrid v2.2.2-coloros.1"
 ui_print "   作者: flyingr · ColorOS 17 适配: yishisanren"
 ui_print "=============================================="
 ui_print " "
@@ -135,7 +135,7 @@ ui_print "  · KsuWebUI：控制台 / 场景 / 外观 / 关于"
 ui_print " "
 if grep -q "^dry_run=['\"]*1" "$CR_DATA/config.conf" 2>/dev/null; then
   ui_print "- 当前为演练模式：只记录不动手"
-  ui_print "  观察一两天日志，再到 WebUI「设置」关闭演练模式"
+  ui_print "  观察一两天日志，再到 WebUI「场景」关闭演练模式"
   ui_print " "
 fi
 ui_print "- 设置目录: $CR_DATA"

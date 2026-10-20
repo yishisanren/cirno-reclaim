@@ -9,6 +9,24 @@
 
 ---
 
+## v2.2.2-coloros.1（合入上游 v2.2.2）
+
+> 审计环境：macOS 开发机 + OPPO Find X9s Pro（ColorOS 17、KernelSU）。
+> 脚本用 dash / sh 静态解析，并在真机的 `/system/bin/sh`（mksh）和 KernelSU busybox 下运行；
+> C++ 守护用 zig 0.13.0 编译后在真机运行。
+
+| 编号 | 发现 | 处理 |
+|---|---|---|
+| U-1 | 上游 main 的合并结果不可用：`webroot/app.js` 语法错误、`module.prop` 两套键、`src/build.sh` 引用未定义的 `$OUT` | 改从 v2.2.2 标签三方合并，上游 main 记为已合并、不取其内容 |
+| U-2 | 预编译 `bin/cirno_daemon` 由 clang 23.1.2 生成，与 `build.sh` 声明的 zig 0.13 不符，无法由源码复现 | 用 zig 0.13.0 重新编译，两次编译逐字节一致；同一工具链可复现 `cirno_pageout` |
+| U-3 | `stop_pidfile` 无条件删除 pid 文件，C++ 守护也只在启动时写一次 pid | 只删仍指向被停进程的 pid 文件；两种守护都在心跳时自愈 |
+| U-4 | 切换 `daemon_engine` 后重启：旧引擎停不掉，锁被当成陈旧锁抢走，两个守护同时运行 | 停止、健康检查、抢锁同时认两种引擎 |
+| U-5 | WebUI 只对名单类键去引号，保存后再保存会把所有开关写成 0 | 所有值去引号；去注释后 `trim` |
+| U-6 | `uninstall.sh` 第 47 行 case 模式漏续行符，卸载清理不执行 | 补上续行符，dash / mksh / busybox 均通过 |
+| U-7 | 新写的多候选命令行匹配在 mksh 下把 `${v%%|*}` 的 `|` 当成「或」，任何命令行都算命中，pid 复用时会停掉无关进程（真机 mksh 测出，dash / busybox 正常） | 改为 `\|`；`tools/lint_sh.py` 增加对应规则 |
+| U-8 | `cirno_daemon` 是静态 musl 程序，读不到 Android 时区，日志按 UTC 写，与脚本日志差 8 小时 | 拉起时按 `date +%z` 传入 POSIX `TZ` |
+| U-9 | 新 WebUI 用同步 `ksu.exec`，KowSU 上只返回最后一行：设置页全空、开关全关，此时保存会写错配置 | 改用异步 `ksu.exec(cmd, '{}', callback)`，同步版只作回退 |
+
 ## v2.2.2
 
 ### 本版改动与安全影响

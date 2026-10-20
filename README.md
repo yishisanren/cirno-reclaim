@@ -14,9 +14,9 @@
 
 ---
 
-> **状态**：v2.0.0-coloros.3。脚本在 Linux 上模拟 Android 两种 shell 环境（mksh + toybox、busybox）
-> 跑过完整的自动化测试（`tests/sim.sh`，真实进程 + 真实 zram）。已在 OPPO Find X9s Pro（ColorOS 17、KernelSU）
-> 上验证安装、开机启动、守护 / 看门狗、演练日志与 WebUI；**真机上的压缩 / 结束动作尚未触发验证**。
+> **状态**：v2.2.2-coloros.1，基于上游 v2.2.2。已在 OPPO Find X9s Pro（ColorOS 17、KernelSU）上验证安装、
+> 开机启动、C++ / Shell 两种守护引擎及切换、看门狗、pid 文件自愈与 WebUI。实跑模式下已有压缩和结束记录，
+> **具体回收了哪些应用尚未逐条核对**。
 > 首次安装默认是**演练模式**：只在日志里记录本来会做什么，不压缩、不结束任何进程。
 > 回滚：`touch /data/adb/modules/cirno_reclaim/disable` 后重启。
 
@@ -66,6 +66,21 @@
 | helper 由源码重新编译 | zig 0.13 交叉编译，两次编译逐字节一致；不再使用来源不明的预编译文件 |
 | WebUI 改用异步执行 | 同步接口执行期间整个页面卡住；老管理器自动退回同步接口 |
 
+### 跟进上游 v2.2.2
+
+上游 v2.2.2 的 C++ 守护进程、新 WebUI（控制台 / 场景 / 外观 / 关于）和 `ctl.sh doctor / info / log` 都已合入，
+同时修了合入时发现的问题：
+
+| 改动 | 原因 |
+|---|---|
+| `cirno_daemon` 由源码重新编译 | 上游提交的二进制用 clang 23.1.2 编译，无法由仓库源码复现；现在用 zig 0.13.0 编，两次编译逐字节一致 |
+| C++ 守护的 pid 文件自愈 | 看门狗重启守护时可能删掉新进程的 pid 文件，之后每 30 秒误判、反复拉起；守护每次心跳时检查并补回 |
+| 切换守护引擎不再留下两个守护 | 原来切换 `daemon_engine` 后重启，停止时只认新引擎，旧引擎停不掉，还会被当成陈旧锁抢走 |
+| C++ 引擎下保护名单定期刷新 | 桌面 / 输入法保护名单原来只由 shell 守护刷新，C++ 引擎下生成一次就不再更新 |
+| WebUI 改回异步执行 | 上游改用同步 `ksu.exec`，KernelSU 系管理器只返回最后一行输出：设置页全空、日志只剩一行 |
+| WebUI 读取带引号的配置 | 保存过一次设置后，参数显示为空、开关显示为关，再保存会把所有开关写成 0 |
+| `uninstall.sh` 语法修复 | 上游 v2.2.2 新增 `cirno_daemon` 匹配时漏了续行符，卸载清理脚本无法运行 |
+
 ---
 
 ## 安装
@@ -79,11 +94,11 @@
 
 ### 步骤
 
-1. 下载 `dist/Cirno-Reclaim-Hybrid-v2.0.0-coloros.3.zip`，在管理器里刷入，重启；
-2. 打开模块 WebUI，概览页会提示「演练模式」；
+1. 下载 `dist/Cirno-Reclaim-Hybrid-v2.2.2-coloros.1.zip`，在管理器里刷入，重启；
+2. 打开模块 WebUI，「控制台」页会提示「演练模式」；
 3. 正常用一两天，看「运行日志」里的 `DRY would pageout` / `DRY would reclaim`：
    这是它本来会压缩 / 结束的应用；
-4. 觉得没问题，在「设置」里关掉「演练模式」并保存。
+4. 觉得没问题，在「场景」页关掉「演练模式」（开关拨动即保存）。
 
 ## ColorOS 17 说明
 
@@ -93,10 +108,12 @@
 - **Cirno 白名单**：Cirno 不冻结的应用（系统应用、输入法、它的白名单）本模块也不会动。
 - **前台识别**：用 `dumpsys activity` 的 `topResumedActivity`。日志里出现
   `cannot detect foreground package` 时，请把诊断信息提到 Issue。
+- **守护引擎**：默认 C++（`daemon_engine=cpp`），只负责调度、心跳和子进程超时，回收逻辑仍在脚本里；
+  可在「场景 → 高级参数」切到 Shell。切换后点「重启守护」生效。
 
 ## 三种预设
 
-WebUI「设置」页顶部，或命令行 `sh /data/adb/modules/cirno_reclaim/bin/ctl.sh preset <名字>`：
+WebUI「场景」页，或命令行 `sh /data/adb/modules/cirno_reclaim/bin/ctl.sh preset <名字>`：
 
 | | 保守 | 均衡（默认） | 激进 |
 |---|---|---|---|
@@ -150,6 +167,7 @@ APP RELIEF done pkg=com.ss.android.ugc.aweme pss=1120MB->980MB avail=900MB->1040
 | `deep_pageout_max_mb` | `256` | 单次压缩上限 |
 | `vm_tune` / `zram_enable` | `0` / `0` | ColorOS 上 zram 无论如何都不动 |
 | `exclude_packages` | 见 `config.conf` | 增加了 ColorOS 系统应用前缀 |
+| `daemon_engine` | `cpp` | `shell` = 不用 C++ 守护（二进制缺失时也自动回退） |
 
 其余键与原版相同，完整说明见 `config.conf` 里的注释。
 
@@ -164,6 +182,9 @@ sh $ctl run               # 立即回收一次
 sh $ctl apprelief --force # 立即舒缓前台
 sh $ctl log 120           # 日志
 sh $ctl diag              # 诊断信息（提 Issue 用）
+sh $ctl doctor            # 自检：路径 / 权限 / 引擎 / helper / 内核 / SELinux / 配置
+sh $ctl info              # 设备与引擎（JSON）
+sh $ctl engine            # 当前守护引擎
 sh $ctl preset aggressive
 sh $ctl set dry_run=0
 sh $ctl restart | start | stop
@@ -171,7 +192,7 @@ sh $ctl restart | start | stop
 
 ## 反馈
 
-在 WebUI「反馈」页复制诊断信息，到 [Issues](https://github.com/yishisanren/cirno-reclaim/issues) 提交。
+在 WebUI「关于」页复制诊断信息，到 [Issues](https://github.com/yishisanren/cirno-reclaim/issues) 提交。
 
 ## 开发
 
@@ -183,8 +204,10 @@ for f in *.sh bin/*.sh; do mksh -n "$f" && busybox sh -n "$f"; done
 sh tests/sim.sh mksh      # /system/bin/sh + toybox + BWK awk
 sh tests/sim.sh busybox   # KernelSU 执行模块脚本的环境
 
-# arm64 helper（zig 0.13；没有 zig 时 pip install ziglang==0.13.0 也行）
+# arm64 组件：cirno_pageout（C）与 cirno_daemon（C++），zig 0.13.0 编译，两次编译逐字节一致
 cd src && ./build.sh
+# 没有 zig 时：pip install ziglang==0.13.0
+ZIG="python3 -m ziglang" ./build.sh
 
 # 打包
 python3 tools/pack.py && python3 tools/checksums.py
@@ -202,4 +225,4 @@ python3 tools/pack.py && python3 tools/checksums.py
 - **Cirno Reclaim Hybrid**（flyingr）：本项目的上游；
 - **HybridRAM**（Razal）：zram / swap 调参思路；
 - [KernelSU](https://github.com/tiann/KernelSU)、[Magisk](https://github.com/topjohnwu/Magisk)、[APatch](https://github.com/bmax121/APatch)；
-- [Zig](https://ziglang.org/) / musl：arm64 helper 交叉编译。
+- [Zig](https://ziglang.org/) / musl：arm64 helper 与 C++ 守护交叉编译。
