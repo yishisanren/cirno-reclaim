@@ -2,6 +2,21 @@
 
 本项目由 **cirno-reclaim**（由 Cirno 派生）与 **HybridRAM** 整合而来，作者 flyingr。
 
+## v2.2.2-coloros.2 — 修复守护进程占满一个 CPU 核心（发烫）
+基于 v2.2.2-coloros.1。
+
+### 修复
+- **`cirno_daemon` 主循环空转，单核 100%、手机持续发烫**：主循环的小睡写成了
+  `struct timespec ts = {0, 1000 * 1000 * 1000}`，而 POSIX 要求 `tv_nsec` 严格小于 1e9。
+  这是非法值，`nanosleep()` 不做等待直接返回 `EINVAL`，返回值又没人检查，循环于是退化成
+  每秒 2700 次系统调用的纯空转。真机实测：CPU 占用 99%~103% → 0%，CPU 结温 81~96 °C → 55 °C。
+  新增 `sleep_seconds(double)` 统一规范化时间并处理 `EINTR`，主循环改为睡到下一个待办事件
+  （上限 2 秒、下限 0.2 秒）；`--once` 与退出清理那两处 `nanosleep` 也一并改走封装。
+
+### 其他
+- `bin/cirno_daemon` 用 zig 0.13.0 由修好的源码重新编译；`bin/cirno_pageout` 未改动。
+- 版本号 `v2.2.2-coloros.2`，`versionCode=202022`。
+
 ## v2.2.2-coloros.1 — 跟进上游 v2.2.2
 
 基于上游 v2.2.2（C++ 守护、新 WebUI、`ctl.sh doctor / info / log`）与 v2.0.0-coloros.3。

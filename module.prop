@@ -1,6 +1,6 @@
 id=cirno_reclaim
 name=Cirno Reclaim Hybrid (ColorOS 17)
-version=v2.2.2-coloros.1
-versionCode=202021
+version=v2.2.2-coloros.2
+versionCode=202022
 author=flyingr, ColorOS port by yishisanren
 description=Memory reclaim companion for the Cirno freezer, adapted for ColorOS 17: pages out frozen apps first and kills only when memory is still short, leaves ColorOS memory extension alone, C++ scheduler daemon with shell fallback, WebUI. First install runs in dry-run mode.
