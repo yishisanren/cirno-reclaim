@@ -351,6 +351,7 @@ protected_dynamic_refresh() {
   esac
   printf '%s' "${_cr_out# }" >"$STATE_DIR/protect.dynamic" 2>/dev/null
   chmod 600 "$STATE_DIR/protect.dynamic" 2>/dev/null
+  date +%s >"$STATE_DIR/protect.ts" 2>/dev/null
   return 0
 }
 
@@ -917,9 +918,20 @@ pageout_pid() {
 
 # ---------------------------------------------------------------- 进程管理
 # 判断某个 pid 的命令行是否包含关键字（防止 pid 复用导致误判存活）
+# $2 可以用 | 分隔多个候选，任一命中即可（按固定字符串比较）
 proc_cmdline_has() {
   [ -n "$1" ] && [ -r "/proc/$1/cmdline" ] || return 1
-  tr '\0' ' ' <"/proc/$1/cmdline" 2>/dev/null | grep -qF -- "$2"
+  _cr_cl=$(tr '\0' ' ' <"/proc/$1/cmdline" 2>/dev/null)
+  _cr_alts=$2
+  while :; do
+    case "$_cr_cl" in
+      *"${_cr_alts%%|*}"*) return 0 ;;
+    esac
+    case "$_cr_alts" in
+      *'|'*) _cr_alts=${_cr_alts#*|} ;;
+      *) return 1 ;;
+    esac
+  done
 }
 
 # $2 = 可选命令行关键字；给了就必须匹配，避免 pid 复用导致误判存活
@@ -945,12 +957,11 @@ cpp_daemon_ready() {
 }
 
 # 当前引擎对应的命令行关键字（用于 pid 存活校验）
+# 判断「守护进程」时两种引擎都认：切换 daemon_engine 后、重启之前，旧引擎还在跑，
+# 只认新引擎会停不掉旧进程、还会把它持有的锁当成陈旧锁抢走，变成两个守护同时运行。
+# 具体拉起哪一种由 start_daemon 按 cpp_daemon_ready 决定。
 daemon_cmdline_pat() {
-  if cpp_daemon_ready; then
-    printf '%s' "cirno_daemon"
-  else
-    printf '%s' "daemon.sh"
-  fi
+  printf '%s' "/bin/cirno_daemon|/bin/daemon.sh"
 }
 
 start_daemon() {

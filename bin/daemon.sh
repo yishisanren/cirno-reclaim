@@ -12,7 +12,7 @@ cfg_load
 protect_self
 
 # 单实例（mkdir 原子锁，pid 文件只用于展示/兼容）
-if ! lock_acquire "$LOCK_DAEMON" daemon.sh; then
+if ! lock_acquire "$LOCK_DAEMON" "$(daemon_cmdline_pat)"; then
   log "daemon already running (lock held), exit"
   exit 0
 fi

@@ -336,8 +336,8 @@ do_diag() {
   printf 'kernel    : %s\n' "$(uname -r 2>/dev/null)"
   printf 'arch      : %s\n' "$(uname -m 2>/dev/null)"
   printf 'root      : %s\n' "$(root_info)"
-  printf 'daemon    : %s (%s)\n' "$(proc_healthy "$PID_FILE" "$(daemon_cmdline_pat)" && echo running || echo stopped)" \
-    "$(daemon_cmdline_pat)"
+  printf 'daemon    : %s (engine=%s)\n' "$(proc_healthy "$PID_FILE" "$(daemon_cmdline_pat)" && echo running || echo stopped)" \
+    "$(if cpp_daemon_ready; then echo cpp; else echo shell; fi)"
   printf 'watchdog  : %s\n' "$(proc_healthy "$WD_PID_FILE" watchdog.sh && echo running || echo stopped)"
   if [ -x "$HELPER" ]; then
     printf 'pageout   : %s\n' "$("$HELPER" --probe 2>&1 | head -n 1)"
