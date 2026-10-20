@@ -42,10 +42,11 @@ cr_init_dirs
 cfg_load
 [ -n "${FORCE_DRY:-}" ] && dry_run=1
 
-# JSON 里的 reason 只允许安全字符，避免 root CLI 传入奇怪内容撑坏 JSON
-case "$REASON" in
-  ''|*[!A-Za-z0-9_.\(\)\<\>-]*) REASON="auto" ;;
-esac
+# JSON 里的 reason 只允许安全字符，避免 root CLI 传入奇怪内容撑坏 JSON。
+# 注意：mksh 的 case 模式方括号里不能出现 ( ) < > ;，这里改用 grep 校验。
+if [ -z "$REASON" ] || printf '%s' "$REASON" | grep -q '[^A-Za-z0-9_().<>-]'; then
+  REASON="auto"
+fi
 
 # 单实例：daemon 的自动回收和 WebUI「立即回收」不能同时改同一批状态文件
 if ! lock_acquire "$LOCK_RECLAIM" reclaim.sh; then
